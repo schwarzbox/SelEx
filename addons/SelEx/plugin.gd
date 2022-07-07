@@ -1,7 +1,7 @@
 tool
 extends EditorPlugin
 
-const SELECT_SCANCODE = KEY_D
+const SELEX_SCANCODE = KEY_D
 const UNDO_SCANCODE = 90
 const REDO_SCANCODE = 90
 const PASTE_SCANCODE = 86
@@ -20,13 +20,16 @@ var text_length: int = 0
 var selected_search: bool = false
 var selected_undo_redo: bool = false
 
+var edit_num: int = 0
+var undo_num: int = 0
+
 func _enter_tree() -> void:
 	prints("Selector plugin:", "enter")
 	self.script_editor = self.get_editor_interface().get_script_editor()
 	self.editor_settings = self.get_editor_interface().get_editor_settings()
 
 	var input_event = InputEventKey.new()
-	input_event.scancode = SELECT_SCANCODE
+	input_event.scancode = SELEX_SCANCODE
 	input_event.command = true
 
 	ShortCut.new().set_shortcut(input_event)
@@ -39,7 +42,7 @@ func _input(event) -> void:
 	self.selected_undo_redo = false
 
 	if event is InputEventKey && event.pressed:
-		if SELECT_SCANCODE == event.scancode && event.command:
+		if SELEX_SCANCODE == event.scancode && event.command:
 			self.search()
 			self.selected_search = true
 		elif (
@@ -49,14 +52,32 @@ func _input(event) -> void:
 			pass
 		elif KEY_BACKSPACE == event.scancode:
 			self.block_backspace()
-		elif event.scancode == UNDO_SCANCODE && event.command && event.shift:
+		elif (
+			self.undo_num > 0
+			&& event.scancode == UNDO_SCANCODE
+			&& (event.command || event.control)
+			&& event.shift
+		):
 			self.redo_selected_words()
 			self.selected_undo_redo = true
-		elif event.scancode == UNDO_SCANCODE && event.command:
+		elif (
+			self.edit_num > 0
+			&& event.scancode == UNDO_SCANCODE
+			&& (event.command || event.control)
+			&& not event.shift
+		):
 			self.undo_selected_words()
 			self.selected_undo_redo = true
 		elif (
-			event.scancode && event.command || event.scancode && event.shift
+			self.edit_num == 0
+			&& event.scancode == UNDO_SCANCODE
+			&& (event.command || event.control)
+			&& not event.shift
+		):
+			self.reset_selected_words()
+		elif (
+			(event.scancode && event.command)
+			|| (event.scancode && event.command && event.shift)
 		):
 			self.selected_undo_redo = true
 		elif (
@@ -193,6 +214,8 @@ func undo_selected_words():
 
 	var editor = self.get_editor()
 	if editor && editor is TextEdit:
+		self.edit_num -= 1
+		self.undo_num += 1
 		self.call_deferred("_restore_selected_words", editor, true)
 
 func redo_selected_words():
@@ -201,12 +224,15 @@ func redo_selected_words():
 
 	var editor = self.get_editor()
 	if editor && editor is TextEdit:
+		self.edit_num += 1
+		self.undo_num -= 1
 		self.call_deferred("_restore_selected_words", editor, false)
 
 func _get_last_word_bounds(editor: TextEdit, last_word: Array) -> Dictionary:
 	return {
 		line = last_word[TextEdit.SEARCH_RESULT_LINE],
 		column = last_word[TextEdit.SEARCH_RESULT_COLUMN],
+		cursor_line = editor.cursor_get_line(),
 		cursor_column = editor.cursor_get_column()
 	}
 
@@ -247,6 +273,11 @@ func _edit_selected_words() -> void:
 	if editor && editor is TextEdit:
 		var last_word = self.selected_words.pop_back()
 		var last_bounds = self._get_last_word_bounds(editor, last_word)
+
+		# reset if paste couple lines
+		if last_bounds.cursor_line != last_bounds.line:
+			self.reset_selected_words()
+			return
 
 		editor.cursor_set_line(last_bounds.line)
 		editor.cursor_set_column(last_bounds.cursor_column)
@@ -303,6 +334,8 @@ func _edit_selected_words() -> void:
 		self.text_length = len(editor.text)
 		editor.deselect()
 
+		self.edit_num += 1
+
 func reset_selected_words() -> void:
 	self.editor_settings.set_setting("text_editor/completion/auto_brace_complete", true)
 
@@ -310,3 +343,5 @@ func reset_selected_words() -> void:
 	self.last_selected_word = ""
 	self.last_selected_word_length = 0
 
+	self.edit_num = 0
+	self.undo_num = 0

@@ -1,9 +1,12 @@
 # SelEx
 
-v0.5
+v0.7
 
-Godot Addon
+Godot Plugin
 
 Expand selection with Cmd+D & edit text in selected regions
 
-Note: Single line only
+![](screenshot/screenshot1.gif)
+
+Note: Use for single line only
+
