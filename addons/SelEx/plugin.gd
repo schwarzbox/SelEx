@@ -8,6 +8,9 @@ const PASTE_SCANCODE = 86
 const COPY_SCANCODE = 67
 const CUT_SCANCODE = 88
 
+var selex_shortcut: ShortCut = null
+var os_name = OS.get_name()
+
 var script_editor: ScriptEditor
 var editor_settings: EditorSettings
 
@@ -30,9 +33,13 @@ func _enter_tree() -> void:
 
 	var input_event = InputEventKey.new()
 	input_event.scancode = SELEX_SCANCODE
-	input_event.command = true
+	if self.os_name == 'OSX':
+		input_event.command = true
+	else:
+		input_event.control = true
 
-	ShortCut.new().set_shortcut(input_event)
+	selex_shortcut = ShortCut.new()
+	selex_shortcut.set_shortcut(input_event)
 
 func _exit_tree() -> void:
 	prints("Selector plugin:", "exit")
@@ -42,12 +49,14 @@ func _input(event) -> void:
 	self.selected_undo_redo = false
 
 	if event is InputEventKey && event.pressed:
-		if SELEX_SCANCODE == event.scancode && event.command:
+		var cmd_key = event.command if self.os_name == 'OSX' else event.control
+
+		if selex_shortcut.is_shortcut(event):
 			self.search()
 			self.selected_search = true
 		elif (
 			event.scancode in [CUT_SCANCODE, COPY_SCANCODE, PASTE_SCANCODE]
-			&& event.command
+			&& cmd_key
 		):
 			pass
 		elif KEY_BACKSPACE == event.scancode:
@@ -55,15 +64,22 @@ func _input(event) -> void:
 		elif (
 			self.undo_num > 0
 			&& event.scancode == UNDO_SCANCODE
-			&& (event.command || event.control)
+			&& cmd_key
 			&& event.shift
+		):
+			self.redo_selected_words()
+			self.selected_undo_redo = true
+		elif (
+			self.undo_num > 0
+			&& event.scancode == KEY_Y
+			&& cmd_key
 		):
 			self.redo_selected_words()
 			self.selected_undo_redo = true
 		elif (
 			self.edit_num > 0
 			&& event.scancode == UNDO_SCANCODE
-			&& (event.command || event.control)
+			&& cmd_key
 			&& not event.shift
 		):
 			self.undo_selected_words()
@@ -71,17 +87,19 @@ func _input(event) -> void:
 		elif (
 			self.edit_num == 0
 			&& event.scancode == UNDO_SCANCODE
-			&& (event.command || event.control)
+			&& cmd_key
 			&& not event.shift
 		):
 			self.reset_selected_words()
 		elif (
-			(event.scancode && event.command)
-			|| (event.scancode && event.command && event.shift)
+			(event.scancode && cmd_key)
+			|| (event.scancode && cmd_key && event.shift)
 		):
 			self.selected_undo_redo = true
 		elif (
-			event.scancode && event.alt || event.scancode && event.control
+			event.scancode && event.alt
+			|| event.scancode && event.control
+			|| event.scancode && event.command
 		):
 			self.reset_selected_words()
 
@@ -208,7 +226,7 @@ func _restore_selected_words(editor: TextEdit, is_undo: bool) -> void:
 	self.text_length = len(editor.text)
 	editor.deselect()
 
-func undo_selected_words():
+func undo_selected_words() -> void:
 	if not self.selected_words:
 		return
 
@@ -218,7 +236,7 @@ func undo_selected_words():
 		self.undo_num += 1
 		self.call_deferred("_restore_selected_words", editor, true)
 
-func redo_selected_words():
+func redo_selected_words() -> void:
 	if not self.selected_words:
 		return
 
