@@ -355,7 +355,7 @@ func _edit_selected_words() -> void:
 		self.edit_num += 1
 
 func reset_selected_words() -> void:
-	self.editor_settings.set_setting("text_editor/completion/auto_brace_complete", true)
+	self.editor_settings.set("text_editor/completion/auto_brace_complete", true)
 
 	self.selected_words = []
 	self.last_selected_word = ""
