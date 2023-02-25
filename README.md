@@ -2,7 +2,7 @@
 
 v0.8
 
-Godot Plugin
+Godot 3.5 Plugin
 
 Expand selection with Cmd+D & edit text in selected regions
 

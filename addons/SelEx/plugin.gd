@@ -1,6 +1,8 @@
 tool
 extends EditorPlugin
 
+# Expand selection with Cmd+D & edit text in selected regions
+
 const SELEX_SCANCODE = KEY_D
 const UNDO_SCANCODE = 90
 const REDO_SCANCODE = 90
@@ -8,11 +10,11 @@ const PASTE_SCANCODE = 86
 const COPY_SCANCODE = 67
 const CUT_SCANCODE = 88
 
-var selex_shortcut: ShortCut = null
-var os_name = OS.get_name()
-
 var script_editor: ScriptEditor
 var editor_settings: EditorSettings
+
+var os_name = OS.get_name()
+var selex_shortcut: ShortCut = null
 
 var selected_words: Array = []
 var last_selected_word: String = ""
@@ -28,12 +30,12 @@ var undo_num: int = 0
 
 func _enter_tree() -> void:
 	prints("Selector plugin:", "enter")
-	self.script_editor = self.get_editor_interface().get_script_editor()
-	self.editor_settings = self.get_editor_interface().get_editor_settings()
+	script_editor = get_editor_interface().get_script_editor()
+	editor_settings = get_editor_interface().get_editor_settings()
 
 	var input_event = InputEventKey.new()
 	input_event.scancode = SELEX_SCANCODE
-	if self.os_name == 'OSX':
+	if os_name == 'OSX':
 		input_event.command = true
 	else:
 		input_event.control = true
@@ -45,109 +47,117 @@ func _exit_tree() -> void:
 	prints("Selector plugin:", "exit")
 
 func _input(event) -> void:
-	self.selected_search = false
-	self.selected_undo_redo = false
+	selected_search = false
+	selected_undo_redo = false
 
 	if event is InputEventKey && event.pressed:
-		var cmd_key = event.command if self.os_name == 'OSX' else event.control
+		var cmd_key = event.command if os_name == 'OSX' else event.control
 
 		if selex_shortcut.is_shortcut(event):
-			self.search()
-			self.selected_search = true
+			search()
+			selected_search = true
 		elif (
 			event.scancode in [CUT_SCANCODE, COPY_SCANCODE, PASTE_SCANCODE]
 			&& cmd_key
 		):
 			pass
 		elif KEY_BACKSPACE == event.scancode:
-			self.block_backspace()
+			block_backspace()
 		elif (
-			self.undo_num > 0
+			undo_num > 0
 			&& event.scancode == UNDO_SCANCODE
 			&& cmd_key
 			&& event.shift
 		):
-			self.redo_selected_words()
-			self.selected_undo_redo = true
+			redo_selected_words()
+			selected_undo_redo = true
 		elif (
-			self.undo_num > 0
+			undo_num > 0
 			&& event.scancode == KEY_Y
 			&& cmd_key
 		):
-			self.redo_selected_words()
-			self.selected_undo_redo = true
+			redo_selected_words()
+			selected_undo_redo = true
 		elif (
-			self.edit_num > 0
+			edit_num > 0
 			&& event.scancode == UNDO_SCANCODE
 			&& cmd_key
 			&& not event.shift
 		):
-			self.undo_selected_words()
-			self.selected_undo_redo = true
+			undo_selected_words()
+			selected_undo_redo = true
 		elif (
-			self.edit_num == 0
+			edit_num == 0
 			&& event.scancode == UNDO_SCANCODE
 			&& cmd_key
 			&& not event.shift
 		):
-			self.reset_selected_words()
+			reset_selected_words()
 		elif (
 			(event.scancode && cmd_key)
 			|| (event.scancode && cmd_key && event.shift)
 		):
-			self.selected_undo_redo = true
+			selected_undo_redo = true
 		elif (
 			event.scancode && event.alt
 			|| event.scancode && event.control
 			|| event.scancode && event.command
 		):
-			self.reset_selected_words()
+			reset_selected_words()
 
 	if event is InputEventMouseButton && event.pressed:
-		self.reset_selected_words()
+		reset_selected_words()
 
-func _search_text_edit(node) -> TextEdit:
+
+# search
+func search_text_edit(node) -> TextEdit:
 	for child in node.get_children():
 		if child is TextEdit:
-			if not child.is_connected("text_changed", self, "_edit_selected_words"):
-				child.connect("text_changed", self, "_edit_selected_words")
-			if not child.is_connected("cursor_changed", self, "_update_last_selected_word"):
-				child.connect("cursor_changed", self, "_update_last_selected_word")
+			if not child.is_connected(
+			   "text_changed",
+			   self,
+			   "_on_TextEdit_edit_selected_words"
+			):
+				child.connect(
+					"text_changed",
+					self,
+					"_on_TextEdit_edit_selected_words"
+				)
+			if not child.is_connected(
+			   "cursor_changed",
+			   self,
+			   "_on_TextEdit_update_last_selected_word"
+			):
+				child.connect(
+					"cursor_changed",
+					self,
+					"_on_TextEdit_update_last_selected_word"
+				)
 			return child
-		return self._search_text_edit(child)
+		return search_text_edit(child)
 	return null
 
 func get_editor() -> TextEdit:
-	var current_script = self.script_editor.get_current_script()
-	var open_scripts = self.script_editor.get_open_scripts()
+	var current_script = script_editor.get_current_script()
+	var open_scripts = script_editor.get_open_scripts()
 
-	var tabs = self.script_editor.get_child(0).get_child(1).get_child(1)
-	for i in range(len(open_scripts)):
+	var tabs = script_editor.get_child(0).get_child(1).get_child(1)
+	for i in range(open_scripts.size()):
 		if open_scripts[i] == current_script:
 			var ste = tabs.get_child(i)
 			if ste.get_class() == "ScriptTextEditor":
-				return self._search_text_edit(ste)
+				return search_text_edit(ste)
 	return null
 
-func search() -> void:
-	self.editor_settings.set_setting("text_editor/completion/auto_brace_complete", false)
-
-	var editor = self.get_editor()
-	if editor && editor is TextEdit && editor.is_selection_active():
-		self.text_length = len(editor.text)
-
-		var selected_text = editor.get_selection_text()
-		self._search_words(editor, selected_text)
-
-func _search_words(editor: TextEdit, selected_text: String) -> void:
+func search_words(editor: TextEdit, selected_text: String) -> void:
 	var line = editor.cursor_get_line()
 	var col = editor.cursor_get_column()
 
-	if self.last_selected_word != selected_text:
-		self.selected_words = []
-		self.last_selected_word = selected_text
-		self.last_selected_word_length = len(self.last_selected_word)
-		self.selected_words.append([col - self.last_selected_word_length, line])
+	if last_selected_word != selected_text:
+		selected_words = []
+		last_selected_word = selected_text
+		last_selected_word_length = len(last_selected_word)
+		selected_words.append([col - last_selected_word_length, line])
 
 	var next_word = editor.search(
 		selected_text, TextEdit.SEARCH_MATCH_CASE, line, col
@@ -155,45 +165,60 @@ func _search_words(editor: TextEdit, selected_text: String) -> void:
 
 	if next_word.size()>0:
 		var has_word = false
-		for word in self.selected_words:
+		for word in selected_words:
 			if word[0] == next_word[0] and word[1] == next_word[1]:
 				has_word = true
 
 		if not has_word:
-			self.selected_words.append(next_word)
+			selected_words.append(next_word)
 
 			var last_col = next_word[TextEdit.SEARCH_RESULT_COLUMN]
 			var last_line = next_word[TextEdit.SEARCH_RESULT_LINE]
 
 			editor.cursor_set_line(last_line)
-			editor.cursor_set_column(last_col + self.last_selected_word_length)
+			editor.cursor_set_column(last_col + last_selected_word_length)
 			editor.select(
 				last_line, last_col,
-				last_line, last_col + self.last_selected_word_length
+				last_line, last_col + last_selected_word_length
 			)
 
-func _unblock_backspace(editor: TextEdit) -> void:
+func search() -> void:
+	editor_settings.set_setting("text_editor/completion/auto_brace_complete", false)
+
+	var editor = get_editor()
+	if editor && editor is TextEdit && editor.is_selection_active():
+		text_length = len(editor.text)
+
+		var selected_text = editor.get_selection_text()
+		search_words(editor, selected_text)
+
+
+# block backspace
+func unblock_backspace(editor: TextEdit) -> void:
 	if editor && editor is TextEdit:
 		if editor.is_readonly():
 			editor.set_readonly(false)
 
 func block_backspace() -> void:
-	if not self.selected_words:
+	if not selected_words:
 		return
 
-	var editor = self.get_editor()
+	var editor = get_editor()
 	if editor && editor is TextEdit:
-		if not self.last_selected_word:
+		if not last_selected_word:
 			editor.set_readonly(true)
-			self.call_deferred("_unblock_backspace", editor)
+			call_deferred("unblock_backspace", editor)
 
-func _update_last_selected_word_length(editor: TextEdit, number_changes: int) -> int:
-	var chars_diff = (self.text_length - len(editor.text)) / number_changes
-	self.last_selected_word_length -= chars_diff
+
+# undo/redo
+func update_last_selected_word_length(editor: TextEdit, number_changes: int) -> int:
+	var chars_diff = (text_length - len(editor.text)) / number_changes
+	last_selected_word_length -= chars_diff
 	return chars_diff
 
-func _restore_selected_words(editor: TextEdit, is_undo: bool) -> void:
-	for i in range((len(self.selected_words) - 1) * 2):
+func restore_selected_words(editor: TextEdit, is_undo: bool) -> void:
+	var selected_words_size = selected_words.size()
+	for i in range((selected_words_size - 1) * 2):
 		if is_undo:
 			if editor.has_undo():
 				editor.undo()
@@ -201,50 +226,65 @@ func _restore_selected_words(editor: TextEdit, is_undo: bool) -> void:
 			if editor.has_redo():
 				editor.redo()
 
-	var chars_diff = self._update_last_selected_word_length(editor, len(self.selected_words))
+	var chars_diff = update_last_selected_word_length(editor, selected_words_size)
 
 	var words_in_line = 0
-	var current_line = self.selected_words[0][TextEdit.SEARCH_RESULT_LINE]
-	for i in range(len(self.selected_words)):
-		var word = self.selected_words[i]
+	var current_line = selected_words[0][TextEdit.SEARCH_RESULT_LINE]
+	for i in range(selected_words_size):
+		var word = selected_words[i]
 		if word[TextEdit.SEARCH_RESULT_LINE] != current_line:
 			words_in_line = 0
 			current_line = word[TextEdit.SEARCH_RESULT_LINE]
 
-		self.selected_words[i][TextEdit.SEARCH_RESULT_COLUMN] -= chars_diff * words_in_line
+		selected_words[i][TextEdit.SEARCH_RESULT_COLUMN] -= chars_diff * words_in_line
 		words_in_line += 1
 
-	var line = self.selected_words[-1][TextEdit.SEARCH_RESULT_LINE]
-	var col = self.selected_words[-1][TextEdit.SEARCH_RESULT_COLUMN]
-	var cursor_column = col + len(self.last_selected_word) - chars_diff
+	var line = selected_words[-1][TextEdit.SEARCH_RESULT_LINE]
+	var col = selected_words[-1][TextEdit.SEARCH_RESULT_COLUMN]
+	var cursor_column = col + len(last_selected_word) - chars_diff
 
 	editor.cursor_set_line(line)
 	editor.cursor_set_column(cursor_column)
 	editor.select(line, col, line, cursor_column)
 #
-	self.last_selected_word = editor.get_selection_text()
-	self.text_length = len(editor.text)
+	last_selected_word = editor.get_selection_text()
+	text_length = len(editor.text)
 	editor.deselect()
 
 func undo_selected_words() -> void:
-	if not self.selected_words:
+	if not selected_words:
 		return
 
-	var editor = self.get_editor()
+	var editor = get_editor()
 	if editor && editor is TextEdit:
-		self.edit_num -= 1
-		self.undo_num += 1
-		self.call_deferred("_restore_selected_words", editor, true)
+		edit_num -= 1
+		undo_num += 1
+		call_deferred("restore_selected_words", editor, true)
 
 func redo_selected_words() -> void:
-	if not self.selected_words:
+	if not selected_words:
 		return
 
-	var editor = self.get_editor()
+	var editor = get_editor()
 	if editor && editor is TextEdit:
-		self.edit_num += 1
-		self.undo_num -= 1
-		self.call_deferred("_restore_selected_words", editor, false)
+		edit_num += 1
+		undo_num -= 1
+		call_deferred("restore_selected_words", editor, false)
+
+
+# reset selected words
+func reset_selected_words() -> void:
+	editor_settings.set(
+		"text_editor/completion/auto_brace_complete", true
+	)
+
+	selected_words = []
+	last_selected_word = ""
+	last_selected_word_length = 0
+
+	edit_num = 0
+	undo_num = 0
+
 
 func _get_last_word_bounds(editor: TextEdit, last_word: Array) -> Dictionary:
 	return {
@@ -262,51 +302,52 @@ func _select_last_word(editor: TextEdit, bounds: Dictionary) -> String:
 	editor.deselect()
 	return word
 
-func _update_last_selected_word() -> void:
-	if self.selected_undo_redo  || self.selected_search || not self.selected_words:
+func _on_TextEdit_update_last_selected_word() -> void:
+	if selected_undo_redo  || selected_search || not selected_words:
 		return
 
-	var editor = self.get_editor()
+	var editor = get_editor()
 	if editor && editor is TextEdit:
-		var last_bounds = self._get_last_word_bounds(editor, self.selected_words[-1])
+		var last_bounds = _get_last_word_bounds(editor, selected_words[-1])
 
 		editor.cursor_set_line(last_bounds.line)
 		if (
 			last_bounds.cursor_column < last_bounds.column
-			|| last_bounds.cursor_column > last_bounds.column + self.last_selected_word_length
+			|| last_bounds.cursor_column > last_bounds.column + last_selected_word_length
 		):
 			if last_bounds.cursor_column < last_bounds.column:
-				editor.cursor_set_column(last_bounds.column + self.last_selected_word_length)
-			elif last_bounds.cursor_column > last_bounds.column + self.last_selected_word_length:
+				editor.cursor_set_column(last_bounds.column + last_selected_word_length)
+			elif last_bounds.cursor_column > last_bounds.column + last_selected_word_length:
 				editor.cursor_set_column(last_bounds.column)
 			return
 
-		self.last_selected_word = self._select_last_word(editor, last_bounds)
+		last_selected_word = _select_last_word(editor, last_bounds)
 
-func _edit_selected_words() -> void:
-	if self.selected_undo_redo || self.selected_search || not self.selected_words:
+func _on_TextEdit_edit_selected_words() -> void:
+	if selected_undo_redo || selected_search || not selected_words:
 		return
 
-	var editor = self.get_editor()
+	var editor = get_editor()
 	if editor && editor is TextEdit:
-		var last_word = self.selected_words.pop_back()
-		var last_bounds = self._get_last_word_bounds(editor, last_word)
+		var last_word = selected_words.pop_back()
+		var last_bounds = _get_last_word_bounds(editor, last_word)
 
 		# reset if paste couple lines
 		if last_bounds.cursor_line != last_bounds.line:
-			self.reset_selected_words()
+			reset_selected_words()
 			return
 
 		editor.cursor_set_line(last_bounds.line)
 		editor.cursor_set_column(last_bounds.cursor_column)
 
-		var selected_text = self._select_last_word(editor, last_bounds)
+		var selected_text = _select_last_word(editor, last_bounds)
 
 		var count_updated = {last_bounds.line: 0}
-		var chars_diff: int = self._update_last_selected_word_length(editor, 1)
+		var chars_diff: int = update_last_selected_word_length(editor, 1
+		)
 		var len_before_edit = len(editor.text)
-		for i in range(len(self.selected_words)):
-			var word = self.selected_words[i]
+		for i in range(selected_words.size()):
+			var word = selected_words[i]
 			var word_col = word[TextEdit.SEARCH_RESULT_COLUMN]
 			var word_line = word[TextEdit.SEARCH_RESULT_LINE]
 
@@ -314,15 +355,15 @@ func _edit_selected_words() -> void:
 				count_updated[word_line] = 0
 
 			var count_chars: int = count_updated[word_line]
-			self.selected_words[i][TextEdit.SEARCH_RESULT_COLUMN] -= count_chars
+			selected_words[i][TextEdit.SEARCH_RESULT_COLUMN] -= count_chars
 
 			editor.select(
 				word_line, word_col - count_chars,
-				word_line, word_col + len(self.last_selected_word) - count_chars
+				word_line, word_col + len(last_selected_word) - count_chars
 			)
 
 			editor.cursor_set_line(word_line)
-			if len(self.last_selected_word) == 0:
+			if len(last_selected_word) == 0:
 				editor.cursor_set_column(word_col - count_chars)
 			else:
 				editor.cursor_set_column(word_col)
@@ -333,7 +374,7 @@ func _edit_selected_words() -> void:
 			if selected_text:
 				count_updated[word_line] += chars_diff
 			else:
-				count_updated[word_line] += len(self.last_selected_word)
+				count_updated[word_line] += len(last_selected_word)
 
 		editor.cursor_set_line(last_bounds.line)
 		editor.cursor_set_column(
@@ -341,25 +382,15 @@ func _edit_selected_words() -> void:
 		)
 
 		# restore last word
-		self.selected_words.append(
+		selected_words.append(
 			[
 				last_bounds.column - count_updated[last_bounds.line],
 				last_bounds.line
 			]
 		)
 
-		self.last_selected_word = selected_text
-		self.text_length = len(editor.text)
+		last_selected_word = selected_text
+		text_length = len(editor.text)
 		editor.deselect()
 
-		self.edit_num += 1
-
-func reset_selected_words() -> void:
-	self.editor_settings.set("text_editor/completion/auto_brace_complete", true)
-
-	self.selected_words = []
-	self.last_selected_word = ""
-	self.last_selected_word_length = 0
-
-	self.edit_num = 0
-	self.undo_num = 0
+		edit_num += 1
